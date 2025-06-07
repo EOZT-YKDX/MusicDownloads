@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "MusicDownloader"
+version = "V8.12.256.17"
+description = "MusicDownloader是一个用于自动化下载bilibili收藏夹内相关视频，并转换为音频格式的脚本。"
+authors = [{name = "YKDX", email = "A7585483@163.com"}]
+readme = "README.md"
+requires-python = "~=3.13"
+dependencies = [
+    "mutagen~=1.47.0",
+    "requests~=2.32.3",
+    "selenium~=4.28.1",
+    "fake-useragent~=2.2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = "src"
