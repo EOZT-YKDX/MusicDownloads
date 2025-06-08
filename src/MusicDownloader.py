@@ -3,7 +3,7 @@
 # Author: YKDX
 # Version: V8.12.256.17
 # Date Creation: 2025/6/1
-# Date Modified: 2025/6/7
+# Date Modified: 2025/6/8
 # Program Name: MusicDownloader
 
 """
@@ -33,7 +33,7 @@ from selenium.webdriver.common.by import By
 from logging.handlers import RotatingFileHandler
 from selenium.webdriver.edge import options, service
 from selenium.common.exceptions import NoSuchElementException
-from mutagen.id3 import ID3, TPE1, TIT3, TPUB, TDRC, TCOP, APIC, ID3NoHeaderError
+from mutagen.id3 import ID3, TPE1, TIT3, TPUB, TDRC, TCOP, APIC, TENC, WOAR, COMM, TKEY, ID3NoHeaderError
 
 # 创建日志记录器
 logger = logging.getLogger("MusicDownloader")
@@ -97,6 +97,8 @@ def setup_logging(folder_path: str, level: int = logging.INFO) -> None:
         logger.addHandler(file_handler)
     else:
         logger.error(f"路径无效: {folder_path}")
+
+    logger.debug("日志配置完成")
     pass
 
 
@@ -129,9 +131,11 @@ def initialize_paths(folder_path: str, subdirectory: list = None) -> dict:
         # 自定义子目录
         subdirectory = {value: os.path.join(parent_dir, value) for value in subdirectory}
 
+    # 创建子目录
     for directory in subdirectory.values():
         os.makedirs(directory, exist_ok=True)
 
+    logger.debug("路径初始化完成")
     return subdirectory
 
 
@@ -158,26 +162,35 @@ def crawl_favorites(fid: str, retry: int = 2, page_size: int = 200) -> dict:
 
     # bilibili的api接口
     url = f"https://api.bilibili.com/x/v1/medialist/resource/list?type=3&biz_id={fid}&ps={page_size}"
-    # 随机生成UserAgent
-    user_agent = UserAgent(
-        min_percentage=0.1, # 过滤使用率小于10%的浏览器版本
-        fallback="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0" # 备用UserAgent
-    )
 
     # 重试机制
-    for _ in range(retry):
+    for count in range(1, retry+1):
+        # 随机生成UserAgent
+        user_agent = UserAgent(
+            min_percentage=0.1,  # 过滤使用率小于10%的浏览器版本
+            fallback="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0" # 备用UserAgent
+        )
+
         try:
-            response = requests.get(url=url, timeout=3, headers={"User-Agent": user_agent.random})
+            response = requests.get(
+                url=url, # 爬取的url
+                timeout=3, # 超时时间
+                headers={
+                    "User-Agent": user_agent.random, # 随机生成的UserAgent
+                    "Origin": "https://www.bilibili.com", # 来源域名
+                    "Referer": "https://www.bilibili.com/", # 防盗链
+                },
+            )
 
             # 检查爬取结果
-            if response.status_code != 200 or not response.content:
-                continue
-
-            logger.info(f"收藏夹数据爬取成功: {fid}")
-            return response.json()
+            if response.status_code == 200 and response.content:
+                logger.info(f"收藏夹数据爬取成功: {fid}")
+                return response.json()
         except Exception as error:
             logger.error(f"收藏夹数据爬取失败: {error}")
-            continue
+
+        logger.info(f"爬取超时，等待1秒后启动第{count}重试")
+        time.sleep(1)
 
     logger.error(f"重试过多，停止爬取 - 累计时长: {datetime.now() - START_TIME}")
     exit(1)
@@ -223,8 +236,23 @@ def data_processing(data: dict, music_dir: str) -> dict:
     cnt_info_fields = ["play", "collect", "thumb_up", "share", "coin", "danmaku", "reply"]
 
     for media in media_data:
+        download_status = False
         # 清理标题中的无效字符
         media_title = "".join(character for character in media.get("title", "未知标题") if character not in r'\/:*?"<>|')
+
+        # 过滤掉已下载的音频
+        for file in os.listdir(music_dir):
+            try:
+                audio_file = ID3(os.path.join(music_dir, file))
+            except ID3NoHeaderError:
+                continue
+
+            if os.path.splitext(media_title)[0] in str(audio_file.getall("COMM")):
+                download_status = True
+
+        if download_status:
+            logger.debug(f"跳过已下载的音频: {media_title}")
+            continue
 
         media_result["title"].append(media_title)
         media_result["bvid"].append(media.get("bv_id", ""))
@@ -254,22 +282,7 @@ def data_processing(data: dict, music_dir: str) -> dict:
 
         media_result["pubtime"].append(pubtime)
 
-    # 过滤掉已下载的音频
-    filtered_result = {key: [] for key in media_result.keys()}
-
-    for sequence in range(len(media_result["title"])):
-        title = media_result["title"][sequence].strip()
-
-        if not any(title in file for file in os.listdir(music_dir)):
-            for key in media_result.keys():
-                filtered_result[key].append(media_result[key][sequence])
-
-    if filtered_result["title"]:
-        logger.info(f"收藏夹数据处理成功 - 等待下载数量: {len(filtered_result["bvid"])}")
-    else:
-        logger.info("收藏夹内所有音乐已被下载")
-
-    return filtered_result
+    return media_result
 
 
 # 信息统计
@@ -318,6 +331,8 @@ def information_statistics(detail: dict, folder_path: str) -> None:
         logger.info(f"已成功统计 {quantity_processed} 个视频信息 - 累计时长: {datetime.now() - START_TIME}")
     except Exception as error:
         logger.error(f"视频信息统计失败: {error}")
+
+    logger.debug(f"视频信息统计完成")
     pass
 
 
@@ -500,8 +515,12 @@ def audio_track_processing(folder_path: str, audio_covers: str) -> None:
                 logger.error(f"音频加载失败: {file}")
                 continue
 
-            # 设置音轨发行商
+            # 设置发布者
             audio_file.add(TPUB(encoding=3, text="YKDX"))
+            # 设置编码人员
+            audio_file.add(TENC(encoding=3, text="YKDX"))
+            # 设置作者URL
+            audio_file.add(WOAR("https://github.com/EOZT-YKDX"))
             # 设置音轨的艺术家
             audio_file.add(TPE1(encoding=3, text=["EOZT-YKDX出品"]))
             # 设置音轨的版权
@@ -511,7 +530,17 @@ def audio_track_processing(folder_path: str, audio_covers: str) -> None:
             # 设置音轨的封面图片
             audio_file.add(APIC(encoding=3, mime="image/png", type=3, desc="Cover", data=audio_covers))
             # 设置音轨的副标题
-            audio_file.add(TIT3(encoding=3, text=[f"默认名称: {file}\n发布日期: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}"]))
+            audio_file.add(TIT3(encoding=3, text=[f"发布日期: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}"]))
+
+            if not "过滤标签" in str(audio_file.getall("COMM")):
+                # 添加过滤标签
+                audio_file.add(COMM(
+                    text=file,
+                    lang="chi",
+                    encoding=3,
+                    desc="过滤标签",
+                ))
+                audio_file.add(TKEY(encoding=3, text=file))
 
             # 保存音轨信息
             audio_file.save(v2_version=3)
@@ -519,7 +548,7 @@ def audio_track_processing(folder_path: str, audio_covers: str) -> None:
             quantity_processed += 1
             logger.debug(f"音轨处理成功: {file}")
 
-        logger.info(f"已成功处理 {quantity_processed} 个音频音轨 - 累计时长: {datetime.now() - START_TIME}")
+    logger.info(f"已成功处理 {quantity_processed} 个音频音轨 - 累计时长: {datetime.now() - START_TIME}")
     pass
 
 
@@ -540,6 +569,12 @@ def compress_audio(input_path: str, output_path: str) -> None:
     if not os.path.exists(output_path):
         logger.error(f"路径无效: {output_path}")
         exit(1)
+
+    # 随机生成UserAgent
+    user_agent = UserAgent(
+        min_percentage=0.1,  # 过滤使用率小于10%的浏览器版本
+        fallback="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0" # 备用UserAgent
+    )
 
     quantity_processed = 0
     # 下载配置
@@ -563,44 +598,33 @@ def compress_audio(input_path: str, output_path: str) -> None:
     edge_options.add_argument("--disable-gpu")
     # 禁用所有插件
     edge_options.add_argument("--disable-plugins")
+    # 设置用户代理
+    edge_options.add_argument(f"user-agent={user_agent.random}")
     # 禁用后台网络
     edge_options.add_argument("--disable-background-networking")
     # 禁用图像加载，提高性能
     edge_options.add_argument("--blink-settings=imagesEnabled=false")
     # 隐藏自动化控制特征
     edge_options.add_argument("--disable-blink-features=AutomationControlled")
-    # 设置用户代理
-    edge_options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0"
-    )
 
     # 应用下载配置
     edge_options.add_experimental_option("prefs", download_configuration)
     # 禁用自动化扩展
     edge_options.add_experimental_option(name="useAutomationExtension", value=False)
 
-    logger.debug(f"Edge浏览器初始化完成")
-    logger.debug(f"开始压缩音频 - 累计时长: {datetime.now() - START_TIME}")
-
-    output_files = os.listdir(output_path)
+    logger.debug(f"Edge浏览器初始化完成 - 开始压缩音频 - 累计时长: {datetime.now() - START_TIME}")
 
     for file in os.listdir(input_path):
         input_file = os.path.join(input_path, file)
 
-        # 跳过已压缩的音频文件
-        if file in output_files:
-            logger.debug(f"已存在压缩音频: {file}")
+        try:
+            audio_file = ID3(input_file)
+        except ID3NoHeaderError:
             continue
 
-        # 跳过无效音频文件
-        try:
-            ID3(input_file)
-
-            if file.endswith("[00].mp4"):
-                logger.debug(f"无效的音频文件: {file}")
-                continue
-        except ID3NoHeaderError:
-            logger.debug(f"无效的音频文件: {file}")
+        # 跳过特定音频文件
+        if file.endswith("[00].mp4") or "压缩标签" in str(audio_file.getall("COMM")):
+            logger.debug(f"已跳过特定的音频文件: {file}")
             continue
 
         try:
@@ -671,6 +695,16 @@ def compress_audio(input_path: str, output_path: str) -> None:
                 lambda _: not any(complete_file.endswith(".crdownload") for complete_file in os.listdir(output_path))
             )
             logger.info(f"成功下载压缩音频: {file} - 累计时长: {datetime.now() - START_TIME}")
+
+            # 添加新的COMM标签
+            audio_file.add(COMM(
+                lang="chi",
+                encoding=3,
+                text="YKDX",
+                desc="压缩标签",
+            ))
+            audio_file.save()
+
             quantity_processed += 1
         except Exception as error:
             logger.error(f"压缩音频下载失败: {error}")
@@ -741,7 +775,7 @@ def name_extraction(folder_path: str) -> None:
             failed += 1
             logger.error(f"文件重命名失败: {error}")
 
-    logger.info(f"文件重命名完成 - 成功: {succeed} - 失败: {failed} - 无效: {invalidity}")
+    logger.info(f"文件重命名完成 - 成功: {succeed} - 失败: {failed} - 无效: {invalidity} - 总计: {succeed + failed + invalidity}")
     pass
 
 
@@ -762,23 +796,22 @@ def main(fid: str, folder_path: str, audio_path: str, logging_level: int = loggi
         delete_file(folder_path=subdirectory["temp"])
 
     audio_track_processing(folder_path=subdirectory["mus_orig"], audio_covers=audio_path)
-    compress_audio(input_path=subdirectory["mus_orig"], output_path=subdirectory["mus_comp"])
+    name_extraction(folder_path=subdirectory["mus_orig"])
 
-    for folder in [subdirectory["mus_orig"], subdirectory["mus_comp"]]:
-        name_extraction(folder_path=folder)
+    compress_audio(input_path=subdirectory["mus_orig"], output_path=subdirectory["mus_comp"])
     pass
 
 
 if __name__ == "__main__":
-    fid = "3420311345"
+    fid = "3570962345"
     folder_path = r"C:\Users\Lenovo\Downloads"
     audio_path = r"C:\programming\Other-Project\素材\LOGO\EOZT通用图标.png"
 
     try:
         main(fid=fid, folder_path=folder_path, audio_path=audio_path, logging_level=logging.INFO)
     except KeyboardInterrupt:
-        logger.warning(f"已停止 MusicDownloader 的运行\n{DIVIDING_LINE}")
+        logger.warning(f"已停止 MusicDownloader 的运行")
     except Exception as error:
-        logger.error(f"\n{error}\n{DIVIDING_LINE}")
+        logger.error(error)
     finally:
         logger.warning(f"MusicDownloader 运行结束 - 累计时长: {datetime.now() - START_TIME}\n{DIVIDING_LINE}")
