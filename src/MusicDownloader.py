@@ -958,3 +958,4 @@ if __name__ == "__main__":
         logger.error(error)
     finally:
         logger.warning(f"MusicDownloader 运行结束 - 累计时长: {datetime.now() - START_TIME}\n{DIVIDING_LINE}")
+    pass
