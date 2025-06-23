@@ -1,47 +1,50 @@
 # MusicDownloader - 音乐嗅探下载工具
 
 一.项目介绍
-1. 项目提供高效、可靠的自动化音乐处理解决方案，通过B站收藏夹的fid和自动化的处理流程，大大提高音乐资源的嗅探和处理的效率，同时保证音频文件的质量和完整性。
+1. MusicDownloader 自动化爬取B站收藏夹数据，通过数据处理，下载对应视频，转换文件格式，最后压缩输出。
 
 二.项目信息
-1. 项目版本：V8.12.256.17
-2. 最后更新：2025年6月8日
+1. 项目版本：V10.13.256.216
+2. 最后更新：2025年6月23日
 
 三.功能介绍
-1. 日志配置 (setup_logging)<br>
+1. 配置日志 (setup_logging)<br>
 设置日志记录器的级别和格式 支持同时输出到控制台和日志文件。
 
 2. 路径初始化 (initialize_paths)<br>
 创建项目所需的各种目录结构 包括日志目录、数据目录、音乐目录和临时目录。
 
-3. 爬取收藏夹 (crawl_favorites)<br>
+3. 工具检测(tool_detection)<br>
+检测系统环境是否包含必要的命令行工具
+
+4. 爬取收藏夹 (crawl_favorites)<br>
 调用bilibili的api接口 通过fid爬取收藏夹的相关数据。
 
-4. 数据处理 (data_processing)<br>
+5. 数据处理 (data_processing)<br>
 处理爬取的收藏夹数据 将其自动分类并打包成字典格式。
 
-5. 信息统计 (information_statistics)<br>
+6. 信息统计 (information_statistics)<br>
 统计B站下载的视频数据信息 包括BVID、时长、发布日期、播放数据等。
 
-6. 视频下载 (download_video)<br>
+7. 下载视频 (download_video)<br>
 使用you-get工具下载指定BVID的视频 支持自定义输出路径和文件名。
 
-7. 下载处理 (download_processing)<br>
+8. 下载处理 (download_processing)<br>
 将下载的视频文件转换为音频格式 输出到指定路径。
-
-8. 删除文件 (delete_file)<br>
-删除指定路径下的所有文件和文件夹。
 
 9. 音轨处理 (audio_track_processing)<br>
 为音频文件添加元数据信息 包括封面、发行商、版权信息等。
 
-10. 音频压缩 (compress_audio)<br>
-通过在线工具压缩音频文件 输出到指定路径。
-
-11. 名称提取 (name_extraction)<br>
+10. 名称提取 (name_extraction)<br>
 提取文件夹内音频的名称 并重命名为匹配的名称。
 
-12. 主程序 (main)<br>
+11. 下载任务(download_task)<br>
+调用多个模块，为并行下载视频提供捆绑支持。
+
+12. 音频压缩 (compress_audio)<br>
+通过在线工具压缩音频文件 输出到指定路径。
+
+13. 主程序 (main)<br>
 提供完整的音乐下载处理流程 支持日志级别切换和异常处理。
 
 四.注意事项
